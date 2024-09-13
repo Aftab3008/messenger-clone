@@ -8,53 +8,111 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import axios from "axios";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { BsGithub, BsGoogle } from "react-icons/bs";
 import { z } from "zod";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import AuthSocialButton from "./AuthSocialButton";
+import { toast } from "sonner";
+import { Loader2 } from "lucide-react";
+import { signIn, useSession } from "next-auth/react";
+import { SignInSchema, SignUpSchema } from "@/constants/ZodSchema";
+import { useRouter } from "next/navigation";
+import { sign } from "crypto";
 
 type AuthFormVariant = "login" | "register";
 
-const formSchema = z.object({
-  name: z.string().optional(),
-  email: z.string().email(),
-  password: z
-    .string()
-    .min(6, { message: "Password should be alteast 6 characters" }),
-});
-
 export default function AuthForm() {
+  const session = useSession();
+  const router = useRouter();
   const [variant, setVariant] = useState<AuthFormVariant>("login");
-  const form = useForm<z.infer<typeof formSchema>>({
-    resolver: zodResolver(formSchema),
+  const signUpForm = useForm<z.infer<typeof SignUpSchema>>({
+    resolver: zodResolver(SignUpSchema),
     defaultValues: {
       name: "",
       email: "",
       password: "",
     },
   });
+  const signInForm = useForm<z.infer<typeof SignInSchema>>({
+    resolver: zodResolver(SignInSchema),
+    defaultValues: {
+      email: "",
+      password: "",
+    },
+  });
 
-  function onSubmit(values: z.infer<typeof formSchema>) {
-    if (variant === "login") {
-      console.log("Login", values);
-    } else {
-      console.log("Register", values);
+  useEffect(() => {
+    if (session?.status === "authenticated") {
+      router.push("/conversations");
     }
+  }, [session?.status, router]);
+
+  function onRegister(values: z.infer<typeof SignUpSchema>) {
+    axios
+      .post("/api/register", values)
+      .then(() => {
+        toast.success("Account created successfully");
+        signIn("credentials", values).then((callback) => {
+          if (callback?.error) {
+            toast.error(callback.error);
+          }
+          if (callback?.ok && !callback?.error) {
+            toast.success("Logged in successfully");
+            router.push("/conversations");
+          }
+        });
+      })
+      .catch((err) => {
+        if (err) {
+          toast.error(err.response.data);
+        } else {
+          toast.error("Something went wrong", {
+            description: "Please try again later",
+          });
+        }
+      });
+  }
+  function onLogin(values: z.infer<typeof SignInSchema>) {
+    signIn("credentials", {
+      ...values,
+      redirect: false,
+    }).then((callback) => {
+      if (callback?.error) {
+        toast.error(callback.error);
+      }
+      if (callback?.ok && !callback?.error) {
+        toast.success("Logged in successfully");
+        router.push("/conversations");
+      }
+    });
   }
 
-  function socialAction(provider: string) {}
+  function socialAction(provider: string) {
+    signIn(provider, {
+      redirect: false,
+    }).then((callback) => {
+      if (callback?.error) {
+        toast.error(callback.error);
+      }
+      if (callback?.ok && !callback?.error) {
+        toast.success("Logged in successfully");
+      }
+    });
+  }
 
   const toggleVariant = useCallback(() => {
     if (variant === "login") {
       setVariant("register");
+      signInForm.reset();
     } else {
       setVariant("login");
+      signUpForm.reset();
     }
-    form.reset();
   }, [variant]);
 
   return (
@@ -62,62 +120,133 @@ export default function AuthForm() {
       {/* {session?.status === "loading" && <LoadingModal />} */}
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className=" bg-white px-4 py-8 shadow sm:rounded-lg sm:px-10 dark:bg-dusk dark:sm:border-2 dark:border-lightgray">
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-              {variant === "register" && (
+          {variant === "register" && (
+            <Form {...signUpForm}>
+              <form
+                onSubmit={signUpForm.handleSubmit(onRegister)}
+                className="space-y-8"
+              >
                 <FormField
-                  control={form.control}
+                  control={signUpForm.control}
                   name="name"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Name</FormLabel>
                       <FormControl>
-                        <Input placeholder="Name" {...field} />
+                        <Input
+                          placeholder="Name"
+                          {...field}
+                          className="focus-visible:ring-0 focus:ring-2 focus:ring-sky-600 focus:ring-offset-2 focus:ring-offset-sky-600"
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-              )}
-              <FormField
-                control={form.control}
-                name="email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Email</FormLabel>
-                    <FormControl>
-                      <Input placeholder="example@gmail.com" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Password</FormLabel>
-                    <FormControl>
-                      <Input type="password" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <Button
-                type="submit"
-                disabled={form.formState.isSubmitting}
-                className="w-full bg-sky-500 hover:bg-sky-600 focus-visible:outline-sky-600"
+
+                <FormField
+                  control={signUpForm.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="example@gmail.com"
+                          {...field}
+                          className="focus-visible:ring-0 focus:ring-2 focus:ring-sky-600 focus:ring-offset-2 focus:ring-offset-sky-600"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={signUpForm.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Password</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="password"
+                          {...field}
+                          className="focus-visible:ring-0 focus:ring-2 focus:ring-sky-600 focus:ring-offset-2 focus:ring-offset-sky-600"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <Button
+                  type="submit"
+                  disabled={signUpForm.formState.isSubmitting}
+                  className="w-full bg-sky-500 hover:bg-sky-600 focus-visible:outline-sky-600"
+                >
+                  {signUpForm.formState.isSubmitting ? (
+                    <Loader2 className="w-4 h-4 animate-spin" color="white" />
+                  ) : (
+                    "Sign Up"
+                  )}
+                </Button>
+              </form>
+            </Form>
+          )}
+          {variant === "login" && (
+            <Form {...signInForm}>
+              <form
+                onSubmit={signInForm.handleSubmit(onLogin)}
+                className="space-y-8"
               >
-                {form.formState.isSubmitting
-                  ? "Loading..."
-                  : variant === "login"
-                  ? "Sign In"
-                  : "Sign Up"}
-              </Button>
-            </form>
-          </Form>
+                <FormField
+                  control={signInForm.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="example@gmail.com"
+                          {...field}
+                          className="focus-visible:ring-0 focus:ring-2 focus:ring-sky-600 focus:ring-offset-2 focus:ring-offset-sky-600"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={signInForm.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Password</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="password"
+                          {...field}
+                          className="focus-visible:ring-0 focus:ring-2 focus:ring-sky-600 focus:ring-offset-2 focus:ring-offset-sky-600"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <Button
+                  type="submit"
+                  disabled={signInForm.formState.isSubmitting}
+                  className="w-full bg-sky-500 hover:bg-sky-600 focus-visible:outline-sky-600"
+                >
+                  {signInForm.formState.isSubmitting ? (
+                    <Loader2 className="w-4 h-4 animate-spin" color="white" />
+                  ) : (
+                    "Sign In"
+                  )}
+                </Button>
+              </form>
+            </Form>
+          )}
+
           <div className="mt-6">
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
